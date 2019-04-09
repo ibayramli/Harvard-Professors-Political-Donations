@@ -1,0 +1,274 @@
+---
+title: "ps_5"
+author: "Ilkin Bayramli"
+date: "March 4, 2019"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE, cache=TRUE}
+
+# It is a good idea to separate the libraries from the main code chunk
+
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(janitor)
+library(fs)
+library(stringr)
+library(gt)
+library(scales)
+```
+
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE, cache=TRUE}
+
+# This part is to automate the file download process. 
+
+download.file("https://www.fec.gov/files/bulk-downloads/2006/weball06.zip",
+              "question_1.zip")
+
+# I decided to separate raw and clean data for reusability purposes
+
+question_1_raw <- read_delim("question_1.zip", delim= "|", col_names = FALSE)
+
+# I decided to mutate and select the df because this is a more familiar and perhaps
+# easier way of doing this than using add_rows()
+
+question_1 <-  question_1_raw %>%
+  mutate(cand_id = X1, 
+         cand_name = X2, 
+         party =  X5, 
+         cash = X11, 
+         cand_state = X19) %>%
+  select(cand_id,
+         cand_name, 
+         party,
+         cash,
+         cand_state) %>%
+  
+  # I think separating the names columns into two columns would be handy for both 
+  # computing the candidates with longest first and last names, and also, for writing their
+  # names in the correct order (e.g Ilkin Bayramli not Bayramli Ilkin)
+  
+  separate(cand_name, 
+           c("cand_last", "cand_first"), 
+           sep = ", ", remove = FALSE) %>%
+  separate(cand_first, c("cand_first", "cand_mid", "cand_forth"),
+           sep = " ") %>%
+  mutate(cand_mid = replace(cand_mid, is.na(cand_mid), ""),
+         cand_forth = replace(cand_forth, is.na(cand_forth), ""))
+
+file_delete("question_1.zip")
+
+third_state <- question_1 %>%
+  group_by(cand_state) %>%
+  summarize(n = n()) %>%
+  arrange(desc(n)) %>%
+  slice(3:3) %>%
+  select(cand_state)
+
+fifth_full_name <- question_1 %>% 
+  select(cand_first, cand_last, cand_mid, cand_forth) %>%
+  arrange(desc(str_length(cand_first) + str_length(cand_last) + str_length(cand_mid) + str_length(cand_forth))) %>%
+  slice(4:4) %>%
+  unite(cand_full, c(cand_first, cand_mid, cand_last, cand_forth), sep=" ") %>%
+  mutate(cand_full = str_to_title(cand_full))
+
+longest_last_name <- question_1 %>%
+  arrange(desc(str_length(cand_last))) %>%
+  slice(1:1) %>%
+  unite(cand_full, c(cand_first, cand_mid, cand_last, cand_forth), sep=" ") %>%
+  mutate(cand_full = str_to_title(cand_full)) %>%
+  select(cand_full)
+
+
+```
+
+#Question 1.
+
+The state with the 3rd most rows is `r third_state`.
+
+The candidate with the 5th longest full name is `r fifth_full_name`.
+
+The candidate with the longest last name is `r longest_last_name`.
+
+#Question 2.
+
+```{r q2, echo=FALSE, error=FALSE, message=FALSE, warning=FALSE, cache=TRUE}
+
+parties_table <- question_1 %>%
+  mutate(party = tolower(party)) %>% 
+  mutate(party = replace(party, is.na(party), "na"),  party = fct_collapse(party, 
+                             DEMOCRATIC = c("dem"),
+                             REPUBLICAN = c("rep"),
+                             INDEPENDENT = c("ind"),
+                             DEMOCRATIC_FARMER_LABOR = c("dfl")),
+         
+         # I decided to look at 4 most important parties and summarize the other one because that would give us 
+         # an idea of how small the donations to all other parties combined is compared to the biggest two states
+         
+         party = fct_other(party, keep = c("REPUBLICAN", "DEMOCRATIC", "INDEPENDENT","DEMOCRATIC_FARMER_LABOR"), other_level = "OTHER")) %>%
+  group_by(party) %>%
+  summarize(total_cash = sum(cash)) %>%
+  arrange(desc(total_cash))
+  
+  
+  gt(parties_table) %>% 
+    
+    # The header should be more informative
+    
+  tab_header(title = "Top 5 Political Parties by Ending Cash") %>% 
+    
+    # This is a great way to format the currency rather than converting them to strings and pasting them manually
+    
+  fmt_currency(columns = vars(total_cash),
+               currency = "USD") %>% 
+  cols_label(
+    party = "Party",
+    total_cash = "Aggregate Ending Cash"
+    ) %>%
+    
+    tab_source_note("SOURCE: Federal Election Commission") 
+
+```
+# Question 3
+
+```{r q3, echo=FALSE, error=FALSE, message=FALSE, warning=FALSE, cache=TRUE}
+  # Again the same download-delete cycle
+
+download.file("https://www.fec.gov/files/bulk-downloads/2006/cm06.zip",
+              "question_3.zip")
+
+question_3_raw <- read_delim("question_3.zip", delim= "|", col_names = FALSE)
+
+file_delete("question_3.zip")
+
+question_3 <- question_3_raw %>%
+  
+  # Transmute both selets and renames, so because it is more concise I decided to use it.
+  
+  transmute(cmte_id = X1, 
+         cmte_party = X11,
+         cand_id = X15) %>%
+  
+  # fct_collapse is easier than recodeing, so I decided to go with it
+  
+  mutate(cmte_party = fct_collapse(cmte_party, 
+                             REPUBLICAN = c("rep", "Rep", "REP"),
+                             DEMOCRATIC = c("dem", "DEM", "Dem"))) %>%
+  
+  # This makes sure that anything not in the vector gets marked as "other"" 
+  
+  mutate( cmte_party = fct_other(cmte_party, keep = c("REPUBLICAN", "DEMOCRATIC"), other_level = "OTHER"))
+
+question_3 %>% 
+  group_by(cmte_party) %>%
+  
+  # n_distinct because we need the unique values
+  
+  summarize(commitee_n = n_distinct(cmte_id), candidate_n = n_distinct(cand_id)) %>% 
+  
+  # This is enough for making sure we don't include the NA values.
+  
+  head(3) %>%
+
+# It is important to make the graph labels and column names understable for everyone, so I relabelled them.  
+  
+gt() %>% 
+  tab_header(title = "Number of Commitees and Candidates per Party") %>% 
+  cols_label(
+    cmte_party = "Committee Party",
+    commitee_n = "Number of Commitees",
+    candidate_n = "Number of Candidates"
+    ) %>%
+  
+  # Since all the sources can be found in Federal Election Commission, I just cited it as a source.
+  
+  tab_source_note("SOURCE: Federal Election Commission")
+
+```
+
+# Question 4.
+
+```{r q4, echo=FALSE, error=FALSE, message=FALSE, warning=FALSE, cache=TRUE}
+ 
+ download.file("https://www.fec.gov/files/bulk-downloads/2006/indiv06.zip",
+                "question_4.zip")
+ question_4_raw <- read_delim("question_4.zip",
+                              delim = "|",
+                              col_names = FALSE,
+                              guess_max = 15000,
+                              escape_double = FALSE)
+ 
+ 
+file_delete("question_4.zip")
+ 
+ # THe first part of this code is the same as the previous ones, so I wont comment on that
+ 
+ question_4_raw %>% 
+   transmute(cmte_id = X1,
+     employer = X12, 
+             occupation = X13,
+             date = X14,
+             amount = X15) %>%
+   
+   # Left_join is the correct way of joining these two graphs because we want to append question_3 data to 
+   # question 1 and not vice versa. 
+   
+   # The main dataset should come first in join family of functions
+   
+   left_join(question_3, by = "cmte_id") %>% 
+   left_join(question_1, by = "cand_id") %>%
+   select(cmte_id, employer, occupation, date, amount, party, cand_id) %>%
+   
+   # I made two joins because to not have to write a different code for write_rds
+   
+   filter(!is.na(party),  employer == "HARVARD UNIVERSITY") %>%
+   mutate(date = mdy(date), date = cut(date, breaks = "quarter")) %>%
+   
+   # This ensures that my code is concise enough. I don't have to assign any variable for write_rds separately
+   
+   write_rds("question_4") %>%
+   
+   # str_detect makes sure that there we include the columns with the word PROFESSER in it.
+   
+   # investigating dataset we see that Harvard University is in capitals not lowercase letters
+   
+   filter(amount > 0, 
+          employer == "HARVARD UNIVERSITY",
+          str_detect(occupation, "PROFESSOR")) %>% 
+   group_by(date, party) %>%
+   summarize(n = n()) %>%
+   
+   # We use spread to distribute the party variables to the columns 
+   
+   spread(party, n) %>%
+   mutate(REP = replace(REP, is.na(REP), 0)) %>%
+     
+   ungroup %>% 
+   
+  gt() %>%
+  tab_header(title = "Total Campaign Contributions of Harvard Professors") %>%
+  cols_label(
+    date = "Quarter Start Date",
+    DEM = "Democrats",
+    REP = "Republicans"
+    ) %>%
+
+  # Since all the sources can be found in Federal Election Commission, I just cited it as a source.
+
+  tab_source_note("SOURCE: Federal Election Commission")
+```
+
+#Question 5.
+
+http://rpubs.com/ibayramli2001/473592
+
+
