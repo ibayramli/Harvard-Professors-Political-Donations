@@ -2,8 +2,10 @@
 
 This project analyses the donations of Harvard Affiliation by political affiliation.
 
-One of the graphics is hosted online at:
+The graphics are hosted online at:
+
+http://rpubs.com/ibayramli2001/harvard_donations
 
 http://rpubs.com/ibayramli2001/473592
 
-http://rpubs.com/ibayramli2001/harvard_donations
+
